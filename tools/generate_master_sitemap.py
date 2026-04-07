@@ -127,23 +127,38 @@ def main():
     logging.info("\n========== STEP 2: Process Primary Sitemap ==========")
     primary_urls = fetch_sitemap_urls(session, PRIMARY_SITEMAP)
     logging.info(f"Total Primary URLs Before Filtering: {len(primary_urls)}")
-    
+
     if len(primary_urls) == 0:
         logging.error("CRITICAL FAILURE: Could not fetch the Primary Sitemap or it was empty. Aborting to prevent overriding the live sitemap with an empty file.")
         sys.exit(1)
-    
+
+    # Check for Weglot-injected translated URLs in primary (these duplicate regional sitemaps)
+    lang_prefixes = ["/es/", "/de/", "/fr/", "/ko/", "/pt/", "/it/", "/ja/", "/ar/"]
+    translated_in_primary = [item for item in primary_urls
+                             if any(urlparse(item["url"]).path.startswith(p) for p in lang_prefixes)]
+    if translated_in_primary:
+        logging.warning(f"Primary sitemap contains {len(translated_in_primary)} translated (non-English) URLs — these will duplicate regional sitemaps.")
+        for item in translated_in_primary[:5]:
+            logging.warning(f"  Example: {item['url']}")
+    else:
+        logging.info("Primary sitemap contains only English URLs (no Weglot injection — good).")
+
     cleaned_primary_urls = []
-    removed_count = 0
+    removed_urls = []
     for item in primary_urls:
         u = item["url"]
         if '/post/' in u:
             slug = get_slug_from_post_url(u)
             if slug and slug in regional_slugs:
-                removed_count += 1
+                removed_urls.append((slug, u))
                 continue # Skip this URL (remove it)
         cleaned_primary_urls.append(item)
-        
-    logging.info(f"\nRemoved {removed_count} duplicate English '/post/' URLs.")
+
+    logging.info(f"\nRemoved {len(removed_urls)} duplicate English '/post/' URLs.")
+    if removed_urls:
+        logging.info("Removed English phantom URLs (slug → regional version exists):")
+        for slug, url in sorted(removed_urls):
+            logging.info(f"  - /post/{slug}  ({url})")
     logging.info(f"Total Primary URLs After Filtering: {len(cleaned_primary_urls)}")
     
     logging.info("\n========== STEP 3: Combine and Generate Master Sitemap ==========")
