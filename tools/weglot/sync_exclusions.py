@@ -12,8 +12,9 @@ Flow:
 7. Signal GitHub Actions to regenerate sitemap + llms.txt if changes found
 
 Environment variables:
-  WEBFLOW_API_TOKEN  — Webflow Data API bearer token
-  WEGLOT_API_KEY     — Weglot project API key (wg_...)
+  WEBFLOW_API_TOKEN      — Webflow Data API bearer token
+  WEGLOT_API_KEY         — Weglot public API key (read access)
+  WEGLOT_PRIVATE_KEY     — Weglot private API key (write access, optional)
 
 Usage:
   python3 tools/weglot/sync_exclusions.py          # full sync
@@ -192,29 +193,59 @@ def fetch_weglot_exclusions(api_key: str) -> list[dict]:
     return data.get("excluded_paths", [])
 
 
-def try_push_weglot_exclusion(api_key: str, exclusion: dict) -> bool:
-    """Attempt to push a new exclusion to Weglot API.
+def push_weglot_exclusions(private_key: str, new_exclusions: list[dict]) -> bool:
+    """Push new exclusions to Weglot using the safe GET→append→POST pattern.
 
-    Returns True if successful, False if the API key lacks write permissions.
+    1. GET current excluded_paths with private key
+    2. Append new exclusions to the existing array
+    3. POST the full updated array back
+
+    Returns True if successful, False otherwise.
+    WARNING: POST replaces the entire excluded_paths array. Always send the FULL list.
     """
     url = f"{WEGLOT_API_BASE}/projects/settings"
-    params = {"api_key": api_key}
+
+    # Step 1: GET current state
+    try:
+        resp = requests.get(url, params={"api_key": private_key}, timeout=30)
+        resp.raise_for_status()
+        current_paths = resp.json().get("excluded_paths", [])
+        log.info(f"Weglot current exclusions: {len(current_paths)}")
+    except Exception as e:
+        log.error(f"Failed to read Weglot settings: {e}")
+        return False
+
+    # Step 2: Append new exclusions
+    existing_values = {p["value"] for p in current_paths}
+    added = 0
+    for exc in new_exclusions:
+        if exc["value"] not in existing_values:
+            current_paths.append(exc)
+            added += 1
+
+    if added == 0:
+        log.info("No new exclusions to push (all already in Weglot)")
+        return True
+
+    # Step 3: POST the full updated array
     try:
         resp = requests.post(
             url,
-            params=params,
-            json={"excluded_paths": [exclusion]},
-            timeout=30,
+            params={"api_key": private_key},
+            json={"excluded_paths": current_paths},
+            timeout=60,
         )
-        if resp.status_code in (200, 201):
+        if resp.status_code == 200:
+            log.info(f"Weglot API: pushed {added} new exclusions (total: {len(current_paths)})")
             return True
         elif resp.status_code == 401:
+            log.warning("Weglot private key lacks write permission")
             return False
         else:
             log.warning(f"Weglot POST returned {resp.status_code}: {resp.text[:200]}")
             return False
     except Exception as e:
-        log.warning(f"Weglot POST failed: {e}")
+        log.error(f"Weglot POST failed: {e}")
         return False
 
 
@@ -365,35 +396,25 @@ def sync(dry_run: bool = False) -> bool:
             print(f"  {exc['url_path']} ({exc['language']}) → exclude: {','.join(exc['excluded_languages'])}")
         return True
 
-    # 5. Try pushing to Weglot API
+    # 5. Push to Weglot API (private key) or fall back to CSV
+    weglot_private_key = os.environ.get("WEGLOT_PRIVATE_KEY", "").strip()
     weglot_push_success = False
-    if new_exclusions:
-        log.info("Attempting to push exclusions to Weglot API...")
-        # Try first one as a test
-        test_exc = {
-            "type": "IS_EXACTLY",
-            "value": new_exclusions[0]["url_path"],
-            "language_button_displayed": True,
-            "exclusion_behavior": "REDIRECT",
-            "excluded_languages": new_exclusions[0]["excluded_languages"],
-        }
-        weglot_push_success = try_push_weglot_exclusion(weglot_key, test_exc)
-        if weglot_push_success:
-            log.info("Weglot API write succeeded! Pushing all exclusions...")
-            for exc in new_exclusions[1:]:
-                weglot_exc = {
-                    "type": "IS_EXACTLY",
-                    "value": exc["url_path"],
-                    "language_button_displayed": True,
-                    "exclusion_behavior": "REDIRECT",
-                    "excluded_languages": exc["excluded_languages"],
-                }
-                try_push_weglot_exclusion(weglot_key, weglot_exc)
-        else:
-            log.warning(
-                "Weglot API write not available (key lacks write permission). "
-                "Generating CSV for manual import."
-            )
+
+    if weglot_private_key and new_exclusions:
+        log.info("Pushing exclusions to Weglot API (private key)...")
+        weglot_entries = [
+            {
+                "type": "IS_EXACTLY",
+                "value": exc["url_path"],
+                "language_button_displayed": True,
+                "exclusion_behavior": "REDIRECT",
+                "excluded_languages": exc["excluded_languages"],
+            }
+            for exc in new_exclusions
+        ]
+        weglot_push_success = push_weglot_exclusions(weglot_private_key, weglot_entries)
+    elif not weglot_private_key:
+        log.warning("WEGLOT_PRIVATE_KEY not set — falling back to CSV export")
 
     # 6. Update local state
     for exc in new_exclusions:

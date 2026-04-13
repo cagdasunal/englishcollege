@@ -28,6 +28,7 @@ jobs:
         env:
           WEBFLOW_API_TOKEN: ${{ secrets.WEBFLOW_API_TOKEN }}
           WEGLOT_API_KEY: ${{ secrets.WEGLOT_API_KEY }}
+          WEGLOT_PRIVATE_KEY: ${{ secrets.WEGLOT_PRIVATE_KEY }}
         run: python3 tools/weglot/sync_exclusions.py
 
       - name: Regenerate Sitemap
