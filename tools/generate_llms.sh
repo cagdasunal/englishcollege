@@ -79,23 +79,9 @@ process_site() {
 
   local full_output="$REPO_ROOT/$output_path"
 
-  # Resolve sitemap: "local" means use sitemap.xml from repo root
-  local resolved_sitemap="$sitemap_url"
-  if [[ "$sitemap_url" == "local" ]]; then
-    local local_sitemap="$REPO_ROOT/sitemap.xml"
-    if [[ ! -f "$local_sitemap" ]]; then
-      log_error "  Local sitemap not found: $local_sitemap"
-      return 1
-    fi
-    resolved_sitemap="file://$local_sitemap"
-    log_info "Processing site: $site_name ($site_id)"
-    log_info "  Sitemap: $local_sitemap (local)"
-    log_info "  Output:  $full_output"
-  else
-    log_info "Processing site: $site_name ($site_id)"
-    log_info "  Sitemap: $resolved_sitemap"
-    log_info "  Output:  $full_output"
-  fi
+  log_info "Processing site: $site_name ($site_id)"
+  log_info "  Sitemap: $sitemap_url"
+  log_info "  Output:  $full_output"
 
   # Truncate or create output file
   > "$full_output"
