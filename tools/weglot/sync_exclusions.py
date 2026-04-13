@@ -354,7 +354,11 @@ def sync(dry_run: bool = False) -> bool:
             # Update CSV: keep only pending entries, clear if all imported
             csv_changed = generate_csv(pending_in_state)
             if imported_count > 0 or csv_changed:
-                return True  # signal changes so workflow commits
+                github_output = os.environ.get("GITHUB_OUTPUT")
+                if github_output:
+                    with open(github_output, "a") as f:
+                        f.write("changes_made=true\n")
+                return True
         return False
 
     log.info(f"Found {len(new_exclusions)} posts needing exclusion rules")
