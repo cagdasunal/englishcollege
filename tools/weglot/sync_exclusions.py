@@ -1,20 +1,19 @@
 #!/usr/bin/env python3
 """
-Weglot Exclusion Sync — Detects new blog posts and manages translation exclusions.
+Weglot Exclusion Sync — Detects new blog posts and pushes translation exclusions.
 
 Flow:
 1. Fetch all published blog posts from Webflow CMS API
 2. Read current Weglot excluded_paths via API
 3. Compute which posts need new exclusion rules
-4. Attempt to push to Weglot API (POST /projects/settings)
-5. If Weglot write fails → generate CSV for manual import
-6. Update local state file (data/weglot-exclusions.json)
-7. Signal GitHub Actions to regenerate sitemap + llms.txt if changes found
+4. Push new exclusions to Weglot via private API key
+5. Update local state file (data/weglot-exclusions.json)
+6. Signal GitHub Actions to regenerate sitemap if changes found
 
 Environment variables:
   WEBFLOW_API_TOKEN      — Webflow Data API bearer token
   WEGLOT_API_KEY         — Weglot public API key (read access)
-  WEGLOT_PRIVATE_KEY     — Weglot private API key (write access, optional)
+  WEGLOT_PRIVATE_KEY     — Weglot private API key (write access)
 
 Usage:
   python3 tools/weglot/sync_exclusions.py          # full sync
@@ -25,7 +24,6 @@ Usage:
 import json
 import os
 import sys
-import csv
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
@@ -45,7 +43,6 @@ SCRIPT_DIR = Path(__file__).parent
 PROJECT_ROOT = SCRIPT_DIR.parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
 STATE_FILE = DATA_DIR / "weglot-exclusions.json"
-CSV_OUTPUT = DATA_DIR / "weglot.csv"
 
 WEBFLOW_API_BASE = "https://api.webflow.com/v2"
 BLOG_COLLECTION_ID = "667453c576e8d35c454ccaae"
@@ -215,7 +212,7 @@ def push_weglot_exclusions(private_key: str, new_exclusions: list[dict]) -> bool
         log.error(f"Failed to read Weglot settings: {e}")
         return False
 
-    # Step 2: Append new exclusions
+    # Step 2: Append new exclusions (skip duplicates)
     existing_values = {p["value"] for p in current_paths}
     added = 0
     for exc in new_exclusions:
@@ -271,37 +268,6 @@ def save_state(state: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
-# CSV Export (for manual Weglot import)
-# ---------------------------------------------------------------------------
-
-def generate_csv(new_exclusions: list[dict]) -> None:
-    """Generate a Weglot-compatible CSV for manual import of pending exclusions."""
-    if not new_exclusions:
-        # Remove pending CSV if no new exclusions
-        if CSV_OUTPUT.exists():
-            CSV_OUTPUT.unlink()
-        return
-
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    with open(CSV_OUTPUT, "w", newline="") as f:
-        writer = csv.writer(f, delimiter=";")
-        writer.writerow([
-            "id", "type", "value", "languages",
-            "language_button_displayed", "exclusion_behavior",
-        ])
-        for i, exc in enumerate(new_exclusions, start=1):
-            writer.writerow([
-                "",  # id (auto-assigned by Weglot)
-                "Is exactly",
-                exc["url_path"],
-                ",".join(exc["excluded_languages"]),
-                1,  # language_button_displayed
-                "Redirect",
-            ])
-    log.info(f"CSV with {len(new_exclusions)} pending exclusions written to {CSV_OUTPUT}")
-
-
-# ---------------------------------------------------------------------------
 # Sitemap Exclusion Data (for sitemap generator)
 # ---------------------------------------------------------------------------
 
@@ -330,6 +296,7 @@ def sync(dry_run: bool = False) -> bool:
     """Run the full sync. Returns True if changes were made."""
     webflow_token = get_env("WEBFLOW_API_TOKEN")
     weglot_key = get_env("WEGLOT_API_KEY")
+    weglot_private_key = get_env("WEGLOT_PRIVATE_KEY")
 
     # 1. Fetch blog posts from Webflow
     log.info("Fetching blog posts from Webflow CMS...")
@@ -351,9 +318,8 @@ def sync(dry_run: bool = False) -> bool:
     for post in posts:
         url_path = post["url_path"]
 
-        # Already in Weglot → skip
+        # Already in Weglot → skip (and sync to local state)
         if url_path in weglot_paths:
-            # Ensure it's in local state too
             if post["slug"] not in state["exclusions"]:
                 state["exclusions"][post["slug"]] = {
                     "language": post["language"],
@@ -362,14 +328,6 @@ def sync(dry_run: bool = False) -> bool:
                     "source": "weglot_existing",
                 }
             continue
-
-        # In local state but NOT in Weglot — retry push
-        if post["slug"] in state["exclusions"]:
-            if state["exclusions"][post["slug"]].get("source") == "pending_csv":
-                # Was CSV-only last time, retry with API
-                pass  # fall through to add to new_exclusions
-            else:
-                continue
 
         # New post — needs exclusion
         excluded_langs = compute_excluded_languages(post["language"])
@@ -386,7 +344,6 @@ def sync(dry_run: bool = False) -> bool:
 
     if not new_exclusions:
         log.info("No new exclusions needed. Everything is in sync.")
-        # Still update state to capture any Weglot-existing entries we synced
         if not dry_run:
             save_state(state)
             generate_sitemap_exclusion_data(state)
@@ -400,25 +357,23 @@ def sync(dry_run: bool = False) -> bool:
             print(f"  {exc['url_path']} ({exc['language']}) → exclude: {','.join(exc['excluded_languages'])}")
         return True
 
-    # 5. Push to Weglot API (private key) or fall back to CSV
-    weglot_private_key = os.environ.get("WEGLOT_PRIVATE_KEY", "").strip()
-    weglot_push_success = False
+    # 5. Push to Weglot API
+    log.info("Pushing exclusions to Weglot API...")
+    weglot_entries = [
+        {
+            "type": "IS_EXACTLY",
+            "value": exc["url_path"],
+            "language_button_displayed": True,
+            "exclusion_behavior": "REDIRECT",
+            "excluded_languages": exc["excluded_languages"],
+        }
+        for exc in new_exclusions
+    ]
+    weglot_push_success = push_weglot_exclusions(weglot_private_key, weglot_entries)
 
-    if weglot_private_key and new_exclusions:
-        log.info("Pushing exclusions to Weglot API (private key)...")
-        weglot_entries = [
-            {
-                "type": "IS_EXACTLY",
-                "value": exc["url_path"],
-                "language_button_displayed": True,
-                "exclusion_behavior": "REDIRECT",
-                "excluded_languages": exc["excluded_languages"],
-            }
-            for exc in new_exclusions
-        ]
-        weglot_push_success = push_weglot_exclusions(weglot_private_key, weglot_entries)
-    elif not weglot_private_key:
-        log.warning("WEGLOT_PRIVATE_KEY not set — falling back to CSV export")
+    if not weglot_push_success:
+        log.error("Failed to push exclusions to Weglot API")
+        sys.exit(1)
 
     # 6. Update local state
     for exc in new_exclusions:
@@ -426,30 +381,22 @@ def sync(dry_run: bool = False) -> bool:
             "language": exc["language"],
             "excluded_from": exc["excluded_languages"],
             "added_at": datetime.now(timezone.utc).isoformat(),
-            "source": "weglot_api" if weglot_push_success else "pending_csv",
+            "source": "weglot_api",
         }
 
     save_state(state)
 
-    # 7. Generate CSV for manual import (if Weglot write failed)
-    if not weglot_push_success:
-        generate_csv(new_exclusions)
-
-    # 8. Generate sitemap exclusion data
+    # 7. Generate sitemap exclusion data
     generate_sitemap_exclusion_data(state)
 
-    # 9. Set GitHub Actions output
+    # 8. Set GitHub Actions output
     github_output = os.environ.get("GITHUB_OUTPUT")
     if github_output:
         with open(github_output, "a") as f:
             f.write("changes_made=true\n")
             f.write(f"new_exclusions={len(new_exclusions)}\n")
-            f.write(f"weglot_push={'success' if weglot_push_success else 'csv_fallback'}\n")
 
-    log.info(
-        f"Sync complete: {len(new_exclusions)} new exclusions "
-        f"({'pushed to Weglot' if weglot_push_success else 'CSV generated for import'})"
-    )
+    log.info(f"Sync complete: {len(new_exclusions)} new exclusions pushed to Weglot")
     return True
 
 
@@ -457,15 +404,13 @@ def show_status():
     """Show current sync status."""
     state = load_state()
     total = len(state.get("exclusions", {}))
-    pending = sum(
-        1 for v in state.get("exclusions", {}).values()
-        if v.get("source") == "pending_csv"
-    )
+    sources = {}
+    for v in state.get("exclusions", {}).values():
+        s = v.get("source", "unknown")
+        sources[s] = sources.get(s, 0) + 1
     print(f"Last sync: {state.get('last_sync', 'never')}")
     print(f"Total tracked exclusions: {total}")
-    print(f"Pending CSV import: {pending}")
-    if CSV_OUTPUT.exists():
-        print(f"Pending CSV file: {CSV_OUTPUT}")
+    print(f"Sources: {sources}")
 
 
 # ---------------------------------------------------------------------------
@@ -483,7 +428,7 @@ if __name__ == "__main__":
 
     try:
         changes = sync(dry_run=dry_run)
-        sys.exit(0 if not changes else 0)
+        sys.exit(0)
     except requests.HTTPError as e:
         log.error(f"HTTP error: {e}")
         log.error(f"Response: {e.response.text[:500] if e.response else 'no response'}")

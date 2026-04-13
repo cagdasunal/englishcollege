@@ -41,12 +41,9 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add data/weglot-exclusions.json data/weglot-sitemap-exclusions.json sitemap.xml
-          cp data/weglot.csv weglot.csv 2>/dev/null || true
-          git add data/weglot.csv weglot.csv 2>/dev/null || true
           git diff --cached --quiet && echo "No changes to commit" && exit 0
           TIMESTAMP=$(date -u +"%Y-%m-%d %H:%M UTC")
           git commit -m "chore: sync weglot exclusions + regenerate sitemap ($TIMESTAMP)
 
-          New exclusions: ${{ steps.sync.outputs.new_exclusions || 0 }}
-          Weglot push: ${{ steps.sync.outputs.weglot_push || 'n/a' }}"
+          New exclusions: ${{ steps.sync.outputs.new_exclusions || 0 }}"
           git push
