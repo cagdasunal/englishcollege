@@ -105,9 +105,18 @@ class TestExtractPostData:
         assert result[0]["language"] == "en"
         assert result[0]["url_path"] == "/post/my-post"
 
-    def test_skips_draft(self):
-        items = [self._make_item("draft-post", "6876590744e1f69b128ef245", draft=True)]
-        result = extract_post_data(items)
+    def test_includes_draft_with_lastPublished(self):
+        """isDraft=True + lastPublished set = published with unsaved edits → still live."""
+        item = self._make_item("draft-post", "6876590744e1f69b128ef245", draft=True)
+        item["lastPublished"] = "2026-03-05T14:49:54.784Z"
+        result = extract_post_data([item])
+        assert len(result) == 1
+
+    def test_skips_draft_never_published(self):
+        """isDraft=True + no lastPublished = truly unpublished draft."""
+        item = self._make_item("draft-post", "6876590744e1f69b128ef245", draft=True)
+        item["lastPublished"] = None
+        result = extract_post_data([item])
         assert len(result) == 0
 
     def test_skips_archived(self):

@@ -140,10 +140,12 @@ def extract_post_data(items: list[dict]) -> list[dict]:
     """Extract slug and language from blog post items. Skip drafts and posts without language."""
     posts = []
     for item in items:
-        if item.get("isDraft", False) or item.get("isArchived", False):
+        if item.get("isArchived", False):
             continue
 
-        # Skip scheduled posts that haven't been published yet
+        # Skip items that have never been published.
+        # Note: isDraft=True + lastPublished set = published post with unsaved edits (still live).
+        # Only skip if lastPublished is null/missing (truly unpublished or scheduled).
         if not item.get("lastPublished"):
             continue
 
