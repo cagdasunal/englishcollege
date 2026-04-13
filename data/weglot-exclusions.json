@@ -1,5 +1,5 @@
 {
-  "last_sync": "2026-04-13T11:21:07.337385+00:00",
+  "last_sync": "2026-04-13T12:40:30.446743+00:00",
   "exclusions": {
     "where-do-students-live-vancouver": {
       "language": "en",
@@ -3676,8 +3676,8 @@
         "ko",
         "pt"
       ],
-      "added_at": "2026-04-13T11:21:07.337252+00:00",
-      "source": "pending_csv"
+      "added_at": "2026-04-13T12:40:30.446629+00:00",
+      "source": "weglot_api"
     },
     "studiare-inglese-canada-tutto-anno-vancouver": {
       "language": "it",
@@ -3690,8 +3690,8 @@
         "ko",
         "pt"
       ],
-      "added_at": "2026-04-13T11:21:07.337268+00:00",
-      "source": "pending_csv"
+      "added_at": "2026-04-13T12:40:30.446649+00:00",
+      "source": "weglot_api"
     },
     "sao-paulo-vancouver-anno-cambiato-nostre-vite": {
       "language": "it",
@@ -3704,8 +3704,8 @@
         "ko",
         "pt"
       ],
-      "added_at": "2026-04-13T11:21:07.337272+00:00",
-      "source": "pending_csv"
+      "added_at": "2026-04-13T12:40:30.446653+00:00",
+      "source": "weglot_api"
     },
     "imparare-inglese-a-san-diego-dopo-il-corso": {
       "language": "it",
@@ -3718,8 +3718,8 @@
         "ko",
         "pt"
       ],
-      "added_at": "2026-04-13T11:21:07.337276+00:00",
-      "source": "pending_csv"
+      "added_at": "2026-04-13T12:40:30.446656+00:00",
+      "source": "weglot_api"
     },
     "englisch-sprechen-sprachaufenthalt": {
       "language": "de",
@@ -3732,8 +3732,8 @@
         "ko",
         "pt"
       ],
-      "added_at": "2026-04-13T11:21:07.337279+00:00",
-      "source": "pending_csv"
+      "added_at": "2026-04-13T12:40:30.446659+00:00",
+      "source": "weglot_api"
     },
     "impara-inglese-usa-modi-intelligenti": {
       "language": "it",
@@ -3746,8 +3746,8 @@
         "ko",
         "pt"
       ],
-      "added_at": "2026-04-13T11:21:07.337282+00:00",
-      "source": "pending_csv"
+      "added_at": "2026-04-13T12:40:30.446661+00:00",
+      "source": "weglot_api"
     },
     "21-business-english-frasi-carriera-globale": {
       "language": "it",
@@ -3760,8 +3760,8 @@
         "ko",
         "pt"
       ],
-      "added_at": "2026-04-13T11:21:07.337285+00:00",
-      "source": "pending_csv"
+      "added_at": "2026-04-13T12:40:30.446663+00:00",
+      "source": "weglot_api"
     },
     "vancouver-vs-san-diego-ritmo-quotidiano-soggiorno-lingua": {
       "language": "it",
@@ -3774,8 +3774,8 @@
         "ko",
         "pt"
       ],
-      "added_at": "2026-04-13T11:21:07.337287+00:00",
-      "source": "pending_csv"
+      "added_at": "2026-04-13T12:40:30.446666+00:00",
+      "source": "weglot_api"
     },
     "inglese-per-carriere-globali": {
       "language": "it",
@@ -3788,8 +3788,8 @@
         "ko",
         "pt"
       ],
-      "added_at": "2026-04-13T11:21:07.337289+00:00",
-      "source": "pending_csv"
+      "added_at": "2026-04-13T12:40:30.446668+00:00",
+      "source": "weglot_api"
     },
     "studentessa-campus-scuola-lingue-san-diego": {
       "language": "it",
@@ -3802,8 +3802,8 @@
         "ko",
         "pt"
       ],
-      "added_at": "2026-04-13T11:21:07.337292+00:00",
-      "source": "pending_csv"
+      "added_at": "2026-04-13T12:40:30.446670+00:00",
+      "source": "weglot_api"
     }
   }
 }
