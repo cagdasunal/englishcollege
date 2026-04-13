@@ -8,11 +8,13 @@ Public repository hosting auto-generated SEO files for [englishcollege.com](http
 |------|-------------|---------|
 | `sitemap.xml` | Filtered multilingual sitemap (EN + 8 languages, ~696 URLs) | Every 6 hours + on new posts |
 | `llms.txt` | LLM-friendly context extracted from sitemap | Every 6 hours |
+| `weglot.csv` | Weglot exclusion CSV for dashboard import | Every 15 minutes |
 
 ## Public URLs
 
 - **Sitemap**: `https://sitemap.englishcollege.com/sitemap.xml`
 - **LLMs.txt**: `https://sitemap.englishcollege.com/llms.txt`
+- **Weglot CSV**: `https://sitemap.englishcollege.com/weglot.csv`
 
 ## Automation
 
@@ -20,7 +22,7 @@ Public repository hosting auto-generated SEO files for [englishcollege.com](http
 Runs every 6 hours. Generates `sitemap.xml` from 9 sitemaps (EN + 8 regional), filters ghost translations and category pages, then generates `llms.txt` from the filtered sitemap.
 
 ### Weglot Exclusion Sync (`weglot-sync.yml`)
-Runs every 15 minutes. Detects new published blog posts in Webflow CMS, pushes translation exclusion rules to Weglot API, and regenerates the sitemap. See `tools/weglot/README.md` for details.
+Runs every 15 minutes. Detects new published blog posts in Webflow CMS, generates `weglot.csv` for Weglot dashboard import, and regenerates the sitemap. After importing the CSV, next run auto-confirms and clears. See `tools/weglot/README.md` for details.
 
 ## Manual Trigger
 

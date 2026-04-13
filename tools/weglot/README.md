@@ -1,76 +1,56 @@
 # Weglot Exclusion Sync
 
-Automated system that detects new blog posts on englishcollege.com and pushes translation exclusions directly to Weglot via API.
+Automated system that detects new blog posts on englishcollege.com and generates a CSV for Weglot translation exclusion import.
 
 ## Problem
 
-When a blog post is published in a specific language (e.g., Italian), Weglot auto-creates translated versions for all 8 target languages. Posts that are already in their original language should NOT be translated. Without exclusion rules, this creates duplicate/ghost pages in the sitemap — terrible for SEO.
+When a blog post is published in a specific language (e.g., Italian), Weglot auto-creates translated versions for all 8 target languages. Posts that are already in their original language should NOT be translated. Without exclusion rules, this creates duplicate/ghost pages — terrible for SEO.
 
 ## How It Works
 
 1. **GitHub Actions** runs every 15 minutes (`.github/workflows/weglot-sync.yml`)
-2. **Fetches all published blog posts** from Webflow CMS API (collection `667453c576e8d35c454ccaae`)
-3. **Reads current Weglot exclusions** via `GET /projects/settings`
+2. **Fetches all published blog posts** from Webflow CMS API
+3. **Reads current Weglot exclusions** via `GET /projects/settings` (public key)
 4. **Computes the delta** — posts that are published but not yet excluded
-5. **Pushes new exclusions** directly to Weglot via `POST /projects/settings` (private key)
-6. **Regenerates** `sitemap.xml` with language-aware filtering
-7. **Commits and pushes** changes to the repo
+5. **Generates `weglot.csv`** for manual import into the Weglot dashboard
+6. **Regenerates `sitemap.xml`** with language-aware filtering (independent of CSV import)
+7. **Commits and pushes** — CSV is downloadable at `https://sitemap.englishcollege.com/weglot.csv`
 
-## Exclusion Logic
+## Workflow
 
-```
-ALL_TRANSLATED = {ar, de, es, fr, it, ja, ko, pt}   # 8 languages (not English base)
+1. New blog post published on Webflow
+2. Within 15 min, GitHub Actions detects it
+3. CSV appears at `https://sitemap.englishcollege.com/weglot.csv`
+4. Download and import into Weglot dashboard (Translation Exclusions → Import)
+5. Next sync run auto-confirms the import (updates state from `csv` → `weglot_existing`)
+6. CSV clears — no duplicates
 
-If post language == "en":
-    exclude_from = ALL_TRANSLATED                     # all 8
-Else:
-    exclude_from = ALL_TRANSLATED - {post_language}   # 7 (keep the post's own language)
-```
+## Weglot API Limitation
 
-English is Weglot's base language and can never be excluded.
+The Weglot `POST /projects/settings` API silently strips the `excluded_languages` field. Per-language exclusions can ONLY be set via the dashboard (manual or CSV import). The API is used read-only for checking current exclusions.
 
 ## Key Behaviors
 
-- **Fully automated** — pushes exclusions directly to Weglot API (private key)
 - **Only processes published posts** — scheduled posts (`lastPublished=null`) are skipped
-- **Handles draft edits** — `isDraft=True` + `lastPublished` set = published with unsaved edits (still live)
-- **No duplicates** — checks Weglot's live exclusion list on every run via GET before POST
-- **Safe writes** — GET current state → append new → POST full array (never overwrites other settings)
-- **Sitemap filtering** — removes ghost translated URLs from regional sitemaps independently
+- **Handles draft edits** — `isDraft=True` + `lastPublished` set = still live
+- **No duplicates** — checks Weglot's live list on every run
+- **Auto-confirms imports** — after you import the CSV, next run detects the entries in Weglot and clears them from CSV
+- **Sitemap independent** — sitemap filtering works immediately, doesn't wait for CSV import
 
 ## Files
 
 | File | Purpose |
 |---|---|
 | `tools/weglot/sync_exclusions.py` | Core sync script |
-| `tools/weglot/test_sync_exclusions.py` | Tests (29 tests) |
-| `data/weglot-exclusions.json` | Tracked exclusion state |
+| `tools/weglot/test_sync_exclusions.py` | Tests |
+| `data/weglot-exclusions.json` | Tracked state |
+| `data/weglot.csv` | CSV for Weglot import |
 | `data/weglot-sitemap-exclusions.json` | Sitemap filter data |
-| `.github/workflows/weglot-sync.yml` | GitHub Actions workflow (every 15 min) |
-
-## Usage
-
-```bash
-# Dry run — show what would change
-WEBFLOW_API_TOKEN=... WEGLOT_API_KEY=... WEGLOT_PRIVATE_KEY=... python3 tools/weglot/sync_exclusions.py --dry-run
-
-# Full sync
-WEBFLOW_API_TOKEN=... WEGLOT_API_KEY=... WEGLOT_PRIVATE_KEY=... python3 tools/weglot/sync_exclusions.py
-
-# Check status
-python3 tools/weglot/sync_exclusions.py --status
-```
+| `weglot.csv` | Root copy for `sitemap.englishcollege.com/weglot.csv` |
 
 ## GitHub Actions Secrets
 
 | Secret | Purpose |
 |---|---|
-| `WEBFLOW_API_TOKEN` | Read-only CMS access to fetch blog posts |
-| `WEGLOT_API_KEY` | Public key — read Weglot settings |
-| `WEGLOT_PRIVATE_KEY` | Private key — write exclusions to Weglot |
-
-## Weglot API
-
-- `GET /projects/settings` — reads all exclusions (public key)
-- `POST /projects/settings` — writes exclusions (private key, safe GET→append→POST pattern)
-- Private key provided by Weglot support (April 2026)
+| `WEBFLOW_API_TOKEN` | Read-only CMS access |
+| `WEGLOT_API_KEY` | Read Weglot exclusions (public key) |

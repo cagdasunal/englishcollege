@@ -1,19 +1,22 @@
 #!/usr/bin/env python3
 """
-Weglot Exclusion Sync — Detects new blog posts and pushes translation exclusions.
+Weglot Exclusion Sync — Detects new blog posts and generates CSV for Weglot import.
 
 Flow:
 1. Fetch all published blog posts from Webflow CMS API
-2. Read current Weglot excluded_paths via API
+2. Read current Weglot excluded_paths via API (public key, read-only)
 3. Compute which posts need new exclusion rules
-4. Push new exclusions to Weglot via private API key
-5. Update local state file (data/weglot-exclusions.json)
+4. Generate CSV for manual Weglot dashboard import
+5. Update local state + sitemap exclusion data
 6. Signal GitHub Actions to regenerate sitemap if changes found
 
+Note: Weglot POST API cannot set per-language exclusions (excluded_languages
+field is silently stripped). CSV import via dashboard is the only way to set
+per-language exclusions correctly.
+
 Environment variables:
-  WEBFLOW_API_TOKEN      — Webflow Data API bearer token
-  WEGLOT_API_KEY         — Weglot public API key (read access)
-  WEGLOT_PRIVATE_KEY     — Weglot private API key (write access)
+  WEBFLOW_API_TOKEN  — Webflow Data API bearer token
+  WEGLOT_API_KEY     — Weglot public API key (read access)
 
 Usage:
   python3 tools/weglot/sync_exclusions.py          # full sync
@@ -24,11 +27,11 @@ Usage:
 import json
 import os
 import sys
+import csv
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
 
-# Optional: requests is needed for API calls (installed in CI via pip)
 try:
     import requests
 except ImportError:
@@ -43,16 +46,15 @@ SCRIPT_DIR = Path(__file__).parent
 PROJECT_ROOT = SCRIPT_DIR.parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
 STATE_FILE = DATA_DIR / "weglot-exclusions.json"
+CSV_OUTPUT = DATA_DIR / "weglot.csv"
 
 WEBFLOW_API_BASE = "https://api.webflow.com/v2"
 BLOG_COLLECTION_ID = "667453c576e8d35c454ccaae"
 
 WEGLOT_API_BASE = "https://api.weglot.com"
 
-# All Weglot translated languages (everything except the English base)
 ALL_TRANSLATED_LANGS = {"ar", "de", "es", "fr", "it", "ja", "ko", "pt"}
 
-# Webflow CMS Language item ID → Weglot language code
 LANGUAGE_ID_MAP = {
     "6876590744e1f69b128ef245": "en",
     "6876596a3a4d6e078bebe528": "de",
@@ -65,7 +67,6 @@ LANGUAGE_ID_MAP = {
     "687659fe11c147ceed4f09cd": "ar",
 }
 
-# Logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -79,7 +80,6 @@ log = logging.getLogger("weglot-sync")
 # ---------------------------------------------------------------------------
 
 def get_env(name: str) -> str:
-    """Get required environment variable or exit."""
     val = os.environ.get(name, "").strip()
     if not val:
         log.error(f"Missing required env var: {name}")
@@ -88,12 +88,7 @@ def get_env(name: str) -> str:
 
 
 def compute_excluded_languages(post_lang: str) -> list[str]:
-    """Given a post's language code, return the sorted list of languages to exclude.
-
-    - English posts: exclude ALL translated languages (ar,de,es,fr,it,ja,ko,pt)
-    - Non-English posts: exclude all EXCEPT the post's own language
-      (English/base is never in the exclusion list since it's Weglot's original)
-    """
+    """Given a post's language code, return sorted list of languages to exclude."""
     if post_lang == "en":
         return sorted(ALL_TRANSLATED_LANGS)
     else:
@@ -105,30 +100,20 @@ def compute_excluded_languages(post_lang: str) -> list[str]:
 # ---------------------------------------------------------------------------
 
 def fetch_all_blog_posts(token: str) -> list[dict]:
-    """Fetch all published blog posts from Webflow CMS, handling pagination."""
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "accept": "application/json",
-    }
+    headers = {"Authorization": f"Bearer {token}", "accept": "application/json"}
     all_items = []
     offset = 0
     limit = 100
 
     while True:
         url = f"{WEBFLOW_API_BASE}/collections/{BLOG_COLLECTION_ID}/items"
-        params = {"limit": limit, "offset": offset}
-        resp = requests.get(url, headers=headers, params=params, timeout=30)
+        resp = requests.get(url, headers=headers, params={"limit": limit, "offset": offset}, timeout=30)
         resp.raise_for_status()
         data = resp.json()
-
         items = data.get("items", [])
         all_items.extend(items)
-
-        pagination = data.get("pagination", {})
-        total = pagination.get("total", len(items))
-
+        total = data.get("pagination", {}).get("total", len(items))
         log.info(f"Fetched {len(all_items)}/{total} blog posts")
-
         if len(all_items) >= total:
             break
         offset += limit
@@ -137,15 +122,11 @@ def fetch_all_blog_posts(token: str) -> list[dict]:
 
 
 def extract_post_data(items: list[dict]) -> list[dict]:
-    """Extract slug and language from blog post items. Skip drafts and posts without language."""
     posts = []
     for item in items:
         if item.get("isArchived", False):
             continue
-
-        # Skip items that have never been published.
-        # Note: isDraft=True + lastPublished set = published post with unsaved edits (still live).
-        # Only skip if lastPublished is null/missing (truly unpublished or scheduled).
+        # isDraft=True + lastPublished set = published with unsaved edits (still live)
         if not item.get("lastPublished"):
             continue
 
@@ -154,16 +135,12 @@ def extract_post_data(items: list[dict]) -> list[dict]:
         lang_ref = field_data.get("language", "")
 
         if not slug:
-            log.warning(f"Post {item.get('id', '?')} has no slug, skipping")
             continue
-
         if not lang_ref:
-            log.warning(f"Post '{slug}' has no language set, skipping")
             continue
 
         lang_code = LANGUAGE_ID_MAP.get(lang_ref)
         if not lang_code:
-            log.warning(f"Post '{slug}' has unknown language ref '{lang_ref}', skipping")
             continue
 
         posts.append({
@@ -179,73 +156,14 @@ def extract_post_data(items: list[dict]) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
-# Weglot API
+# Weglot API (read-only)
 # ---------------------------------------------------------------------------
 
 def fetch_weglot_exclusions(api_key: str) -> list[dict]:
-    """Fetch current excluded_paths from Weglot settings API."""
     url = f"{WEGLOT_API_BASE}/projects/settings"
-    params = {"api_key": api_key}
-    resp = requests.get(url, params=params, timeout=30)
+    resp = requests.get(url, params={"api_key": api_key}, timeout=30)
     resp.raise_for_status()
-    data = resp.json()
-    return data.get("excluded_paths", [])
-
-
-def push_weglot_exclusions(private_key: str, new_exclusions: list[dict]) -> bool:
-    """Push new exclusions to Weglot using the safe GET→append→POST pattern.
-
-    1. GET current excluded_paths with private key
-    2. Append new exclusions to the existing array
-    3. POST the full updated array back
-
-    Returns True if successful, False otherwise.
-    WARNING: POST replaces the entire excluded_paths array. Always send the FULL list.
-    """
-    url = f"{WEGLOT_API_BASE}/projects/settings"
-
-    # Step 1: GET current state
-    try:
-        resp = requests.get(url, params={"api_key": private_key}, timeout=30)
-        resp.raise_for_status()
-        current_paths = resp.json().get("excluded_paths", [])
-        log.info(f"Weglot current exclusions: {len(current_paths)}")
-    except Exception as e:
-        log.error(f"Failed to read Weglot settings: {e}")
-        return False
-
-    # Step 2: Append new exclusions (skip duplicates)
-    existing_values = {p["value"] for p in current_paths}
-    added = 0
-    for exc in new_exclusions:
-        if exc["value"] not in existing_values:
-            current_paths.append(exc)
-            added += 1
-
-    if added == 0:
-        log.info("No new exclusions to push (all already in Weglot)")
-        return True
-
-    # Step 3: POST the full updated array
-    try:
-        resp = requests.post(
-            url,
-            params={"api_key": private_key},
-            json={"excluded_paths": current_paths},
-            timeout=60,
-        )
-        if resp.status_code == 200:
-            log.info(f"Weglot API: pushed {added} new exclusions (total: {len(current_paths)})")
-            return True
-        elif resp.status_code == 401:
-            log.warning("Weglot private key lacks write permission")
-            return False
-        else:
-            log.warning(f"Weglot POST returned {resp.status_code}: {resp.text[:200]}")
-            return False
-    except Exception as e:
-        log.error(f"Weglot POST failed: {e}")
-        return False
+    return resp.json().get("excluded_paths", [])
 
 
 # ---------------------------------------------------------------------------
@@ -253,7 +171,6 @@ def push_weglot_exclusions(private_key: str, new_exclusions: list[dict]) -> bool
 # ---------------------------------------------------------------------------
 
 def load_state() -> dict:
-    """Load exclusion state from JSON file."""
     if STATE_FILE.exists():
         with open(STATE_FILE) as f:
             return json.load(f)
@@ -261,7 +178,6 @@ def load_state() -> dict:
 
 
 def save_state(state: dict) -> None:
-    """Save exclusion state to JSON file."""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     state["last_sync"] = datetime.now(timezone.utc).isoformat()
     with open(STATE_FILE, "w") as f:
@@ -270,19 +186,40 @@ def save_state(state: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Sitemap Exclusion Data (for sitemap generator)
+# CSV Export
+# ---------------------------------------------------------------------------
+
+def generate_csv(new_exclusions: list[dict]) -> None:
+    """Generate Weglot-compatible CSV for dashboard import."""
+    if not new_exclusions:
+        if CSV_OUTPUT.exists():
+            CSV_OUTPUT.unlink()
+        return
+
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    with open(CSV_OUTPUT, "w", newline="") as f:
+        writer = csv.writer(f, delimiter=";")
+        writer.writerow(["id", "type", "value", "languages", "language_button_displayed", "exclusion_behavior"])
+        for exc in new_exclusions:
+            writer.writerow([
+                "",
+                "Is exactly",
+                exc["url_path"],
+                ",".join(exc["excluded_languages"]),
+                1,
+                "Redirect",
+            ])
+    log.info(f"CSV with {len(new_exclusions)} exclusions written to {CSV_OUTPUT}")
+
+
+# ---------------------------------------------------------------------------
+# Sitemap Exclusion Data
 # ---------------------------------------------------------------------------
 
 def generate_sitemap_exclusion_data(state: dict) -> None:
-    """Write a simplified exclusion map for the sitemap generator to consume.
-
-    Output: data/weglot-sitemap-exclusions.json
-    Format: { "/post/slug": ["ar", "de", ...], ... }
-    """
     exclusion_map = {}
     for slug, info in state.get("exclusions", {}).items():
-        url_path = f"/post/{slug}"
-        exclusion_map[url_path] = info["excluded_from"]
+        exclusion_map[f"/post/{slug}"] = info["excluded_from"]
 
     out_path = DATA_DIR / "weglot-sitemap-exclusions.json"
     with open(out_path, "w") as f:
@@ -295,10 +232,8 @@ def generate_sitemap_exclusion_data(state: dict) -> None:
 # ---------------------------------------------------------------------------
 
 def sync(dry_run: bool = False) -> bool:
-    """Run the full sync. Returns True if changes were made."""
     webflow_token = get_env("WEBFLOW_API_TOKEN")
     weglot_key = get_env("WEGLOT_API_KEY")
-    weglot_private_key = get_env("WEGLOT_PRIVATE_KEY")
 
     # 1. Fetch blog posts from Webflow
     log.info("Fetching blog posts from Webflow CMS...")
@@ -315,12 +250,22 @@ def sync(dry_run: bool = False) -> bool:
     # 3. Load local state
     state = load_state()
 
-    # 4. Find posts that need new exclusion rules
+    # 4. Auto-confirm imported entries: if a post was "csv" or "needs_import"
+    #    in state but now appears in Weglot, update source to "weglot_existing"
+    imported_count = 0
+    for slug, info in state.get("exclusions", {}).items():
+        if info.get("source") in ("csv", "needs_import"):
+            if f"/post/{slug}" in weglot_paths:
+                info["source"] = "weglot_existing"
+                imported_count += 1
+    if imported_count:
+        log.info(f"Confirmed {imported_count} previously pending entries now in Weglot")
+
+    # 5. Find posts not yet in Weglot
     new_exclusions = []
     for post in posts:
         url_path = post["url_path"]
 
-        # Already in Weglot → skip (and sync to local state)
         if url_path in weglot_paths:
             if post["slug"] not in state["exclusions"]:
                 state["exclusions"][post["slug"]] = {
@@ -331,11 +276,8 @@ def sync(dry_run: bool = False) -> bool:
                 }
             continue
 
-        # New post — needs exclusion
         excluded_langs = compute_excluded_languages(post["language"])
-        log.info(
-            f"NEW: {url_path} (lang={post['language']}) → exclude {','.join(excluded_langs)}"
-        )
+        log.info(f"NEW: {url_path} (lang={post['language']}) → exclude {','.join(excluded_langs)}")
         new_exclusions.append({
             "slug": post["slug"],
             "name": post["name"],
@@ -359,23 +301,8 @@ def sync(dry_run: bool = False) -> bool:
             print(f"  {exc['url_path']} ({exc['language']}) → exclude: {','.join(exc['excluded_languages'])}")
         return True
 
-    # 5. Push to Weglot API
-    log.info("Pushing exclusions to Weglot API...")
-    weglot_entries = [
-        {
-            "type": "IS_EXACTLY",
-            "value": exc["url_path"],
-            "language_button_displayed": True,
-            "exclusion_behavior": "REDIRECT",
-            "excluded_languages": exc["excluded_languages"],
-        }
-        for exc in new_exclusions
-    ]
-    weglot_push_success = push_weglot_exclusions(weglot_private_key, weglot_entries)
-
-    if not weglot_push_success:
-        log.error("Failed to push exclusions to Weglot API")
-        sys.exit(1)
+    # 5. Generate CSV for Weglot dashboard import
+    generate_csv(new_exclusions)
 
     # 6. Update local state
     for exc in new_exclusions:
@@ -383,7 +310,7 @@ def sync(dry_run: bool = False) -> bool:
             "language": exc["language"],
             "excluded_from": exc["excluded_languages"],
             "added_at": datetime.now(timezone.utc).isoformat(),
-            "source": "weglot_api",
+            "source": "csv",
         }
 
     save_state(state)
@@ -398,12 +325,11 @@ def sync(dry_run: bool = False) -> bool:
             f.write("changes_made=true\n")
             f.write(f"new_exclusions={len(new_exclusions)}\n")
 
-    log.info(f"Sync complete: {len(new_exclusions)} new exclusions pushed to Weglot")
+    log.info(f"Sync complete: {len(new_exclusions)} new exclusions → CSV generated for Weglot import")
     return True
 
 
 def show_status():
-    """Show current sync status."""
     state = load_state()
     total = len(state.get("exclusions", {}))
     sources = {}
@@ -415,25 +341,17 @@ def show_status():
     print(f"Sources: {sources}")
 
 
-# ---------------------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------------------
-
 if __name__ == "__main__":
     args = sys.argv[1:]
-
     if "--status" in args:
         show_status()
         sys.exit(0)
 
     dry_run = "--dry-run" in args
-
     try:
-        changes = sync(dry_run=dry_run)
-        sys.exit(0)
+        sync(dry_run=dry_run)
     except requests.HTTPError as e:
         log.error(f"HTTP error: {e}")
-        log.error(f"Response: {e.response.text[:500] if e.response else 'no response'}")
         sys.exit(1)
     except Exception as e:
         log.error(f"Sync failed: {e}", exc_info=True)
