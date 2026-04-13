@@ -189,12 +189,14 @@ def save_state(state: dict) -> None:
 # CSV Export
 # ---------------------------------------------------------------------------
 
-def generate_csv(new_exclusions: list[dict]) -> None:
-    """Generate Weglot-compatible CSV for dashboard import."""
+def generate_csv(new_exclusions: list[dict]) -> bool:
+    """Generate Weglot-compatible CSV for dashboard import. Returns True if file changed."""
     if not new_exclusions:
         if CSV_OUTPUT.exists():
             CSV_OUTPUT.unlink()
-        return
+            log.info("CSV cleared — all entries imported to Weglot")
+            return True
+        return False
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     with open(CSV_OUTPUT, "w", newline="") as f:
@@ -210,6 +212,7 @@ def generate_csv(new_exclusions: list[dict]) -> None:
                 "Redirect",
             ])
     log.info(f"CSV with {len(new_exclusions)} exclusions written to {CSV_OUTPUT}")
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -336,15 +339,22 @@ def sync(dry_run: bool = False) -> bool:
             "excluded_languages": excluded_langs,
         })
 
+    # Always sync CSV with current state: only non-imported entries stay in CSV
+    pending_in_state = [
+        {"url_path": f"/post/{slug}", "excluded_languages": info["excluded_from"]}
+        for slug, info in state.get("exclusions", {}).items()
+        if info.get("source") in ("csv", "needs_import")
+    ]
+
     if not new_exclusions:
         log.info("No new exclusions needed. Everything is in sync.")
         if not dry_run:
             save_state(state)
             generate_sitemap_exclusion_data(state)
-            # Clear CSV if all pending entries are now confirmed in Weglot
-            if imported_count > 0:
-                generate_csv([])  # clears the file
-                return True  # signal changes so workflow commits the cleared CSV
+            # Update CSV: keep only pending entries, clear if all imported
+            csv_changed = generate_csv(pending_in_state)
+            if imported_count > 0 or csv_changed:
+                return True  # signal changes so workflow commits
         return False
 
     log.info(f"Found {len(new_exclusions)} posts needing exclusion rules")

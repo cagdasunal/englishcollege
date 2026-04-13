@@ -121,6 +121,11 @@ process_site() {
     return 1
   fi
 
+  # Fix Multiple H1: llmstxt tool may add its own H1 — demote to H2
+  sed -i 's/^# /## /' "$full_output"
+  # Restore OUR H1 (first line)
+  sed -i '1s/^## /# /' "$full_output"
+
   # Safety check: if output is suspiciously small (< 100 lines), the tool failed silently
   local line_count
   line_count=$(wc -l < "$full_output")
