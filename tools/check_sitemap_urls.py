@@ -58,17 +58,19 @@ def load_sitemap_urls(source: str) -> list[str]:
     return [el.text.strip() for el in locs if el.text]
 
 
-def check_url(url: str, timeout: int = 15) -> dict:
-    """Check a single URL. Returns status dict."""
+def check_url(url: str, timeout: int = 10) -> dict:
+    """Check a single URL with GET (no redirect follow). Fast — doesn't load full page."""
     try:
-        resp = requests.get(url, timeout=timeout, allow_redirects=False)
+        # Use GET with allow_redirects=False and stream=True to avoid downloading body
+        resp = requests.get(url, timeout=timeout, allow_redirects=False, stream=True)
+        resp.close()  # Don't download body
+
         result = {
             "url": url,
             "status": resp.status_code,
             "ok": resp.status_code == 200,
         }
 
-        # Follow redirects manually to detect chains
         if resp.status_code in (301, 302, 307, 308):
             location = resp.headers.get("Location", "")
             result["redirect_to"] = location
