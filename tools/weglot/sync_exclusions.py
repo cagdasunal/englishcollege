@@ -49,7 +49,7 @@ HTTP_TIMEOUT = 60  # seconds — bumped from 30 after Apr 14 flake where
                    # Webflow CMS API took >30s on a cold connection
 
 
-def create_robust_session() -> "requests.Session":
+def create_robust_session() -> requests.Session:
     """
     HTTP session with automatic retries for transient failures.
 

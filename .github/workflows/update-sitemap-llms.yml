@@ -22,6 +22,11 @@ jobs:
         with:
           python-version: '3.12'
 
+      # node-version is intentionally 20 — this is the Node runtime for
+      # the `llmstxt` npm package invoked by tools/generate_llms.sh, NOT
+      # the deprecated GitHub Actions action runtime. The action itself
+      # (actions/setup-node@v5) is Node.js 24 native. Do not bump to 22/24
+      # without testing `npx llmstxt` compatibility first.
       - name: Set up Node.js 20
         uses: actions/setup-node@v5
         with:
