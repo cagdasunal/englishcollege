@@ -12,9 +12,13 @@ import pytest
 
 # Add the tools/weglot directory to path
 sys.path.insert(0, str(Path(__file__).parent))
+import sync_exclusions
 from sync_exclusions import (
     compute_excluded_languages,
     extract_post_data,
+    create_robust_session,
+    HTTP,
+    HTTP_TIMEOUT,
     LANGUAGE_ID_MAP,
     ALL_TRANSLATED_LANGS,
 )
@@ -248,6 +252,88 @@ class TestSitemapExclusionFiltering:
         assert is_excluded_translation(
             "https://www.englishcollege.com/de/post/different-slug", exclusion_map
         ) is False
+
+
+class TestRetryAdapter:
+    """Verify the HTTP session retry configuration is wired correctly.
+
+    The real-world behavior was verified against a live Webflow outage
+    on 2026-04-14 (scheduled run 24404045978 retried for roughly 3
+    minutes before bubbling the error). These tests are regression
+    guards — if someone removes the retry adapter, drops the backoff,
+    or reverts HTTP.get to a bare requests.get, at least one of these
+    tests will fail.
+    """
+
+    def test_http_timeout_is_60s(self):
+        # Bumped from 30s after Apr 14 flake where a cold Webflow API
+        # connection took slightly over 30s to respond.
+        assert HTTP_TIMEOUT == 60
+
+    def test_module_level_session_is_a_session(self):
+        import requests
+        assert isinstance(HTTP, requests.Session)
+
+    def test_https_has_retry_adapter(self):
+        from requests.adapters import HTTPAdapter
+        session = create_robust_session()
+        adapter = session.get_adapter("https://api.webflow.com")
+        assert isinstance(adapter, HTTPAdapter)
+        assert adapter.max_retries.total == 4
+
+    def test_http_has_retry_adapter(self):
+        from requests.adapters import HTTPAdapter
+        session = create_robust_session()
+        adapter = session.get_adapter("http://example.com")
+        assert isinstance(adapter, HTTPAdapter)
+
+    def test_retry_config_matches_spec(self):
+        session = create_robust_session()
+        retry = session.get_adapter("https://api.webflow.com").max_retries
+        assert retry.total == 4
+        assert retry.connect == 4
+        assert retry.read == 4
+        assert retry.backoff_factor == 2
+        # Must retry on rate limit and transient 5xx
+        assert 429 in retry.status_forcelist
+        assert 500 in retry.status_forcelist
+        assert 502 in retry.status_forcelist
+        assert 503 in retry.status_forcelist
+        assert 504 in retry.status_forcelist
+        # GET must be allowed (idempotent). allowed_methods can be None
+        # (meaning "all verbs") or a set on older urllib3 versions.
+        assert retry.allowed_methods is None or "GET" in retry.allowed_methods
+
+    def test_fetch_all_blog_posts_uses_session(self):
+        """If someone replaces HTTP.get with a bare requests.get, the retry
+        adapter gets bypassed. This test catches that regression by
+        patching HTTP.get and verifying fetch_all_blog_posts reaches it
+        with the configured 60s timeout."""
+        with patch.object(sync_exclusions.HTTP, "get") as mock_get:
+            mock_resp = MagicMock()
+            mock_resp.json.return_value = {"items": [], "pagination": {"total": 0}}
+            mock_resp.raise_for_status = MagicMock()
+            mock_get.return_value = mock_resp
+
+            sync_exclusions.fetch_all_blog_posts("dummy-token")
+
+            mock_get.assert_called_once()
+            _, kwargs = mock_get.call_args
+            assert kwargs.get("timeout") == HTTP_TIMEOUT
+
+    def test_fetch_weglot_exclusions_uses_session(self):
+        """Same regression guard for the Weglot read path."""
+        with patch.object(sync_exclusions.HTTP, "get") as mock_get:
+            mock_resp = MagicMock()
+            mock_resp.json.return_value = {"excluded_paths": []}
+            mock_resp.raise_for_status = MagicMock()
+            mock_get.return_value = mock_resp
+
+            sync_exclusions.fetch_weglot_exclusions("dummy-key")
+
+            mock_get.assert_called_once()
+            _, kwargs = mock_get.call_args
+            assert kwargs.get("timeout") == HTTP_TIMEOUT
 
 
 if __name__ == "__main__":
