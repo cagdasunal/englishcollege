@@ -13,3 +13,9 @@ node_modules/
 
 # OS
 .DS_Store
+
+# Auto-generated per-run diagnostic (regenerated every workflow run by
+# tools/check_sitemap_urls.py; tracking it caused the "Update Sitemap
+# & LLMs.txt" workflow to fail with "cannot pull with rebase: You have
+# unstaged changes" — see run 24472895594, 2026-04-15).
+data/sitemap-check-report.json
