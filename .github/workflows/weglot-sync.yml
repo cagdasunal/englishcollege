@@ -53,6 +53,9 @@ jobs:
           fi
           git add data/weglot.csv weglot.csv 2>/dev/null || true
           git diff --cached --quiet && echo "No changes to commit" && exit 0
+          export CHANGED="$(git diff --cached --name-only | tr '\n' ' ')"
+          python3 tools/update_log.py
+          git add log.txt
           TIMESTAMP=$(date -u +"%Y-%m-%d %H:%M UTC")
           git commit -m "chore: sync weglot exclusions + regenerate sitemap ($TIMESTAMP)
 

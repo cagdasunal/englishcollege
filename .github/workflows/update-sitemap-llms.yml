@@ -57,6 +57,9 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add sitemap.xml llms.txt
           if ! git diff --cached --quiet; then
+            export CHANGED="$(git diff --cached --name-only | tr '\n' ' ')"
+            python3 tools/update_log.py
+            git add log.txt
             TIMESTAMP=$(date -u +"%Y-%m-%d %H:%M UTC")
             git commit -m "Auto-update sitemap.xml and llms.txt ($TIMESTAMP)"
             git pull --rebase origin main
