@@ -67,8 +67,11 @@ def count_pending_weglot_entries() -> int:
         return 0
     # Treat first row as header if it matches Weglot CSV format.
     # The actual header is "id;type;value;languages;language_button_displayed;exclusion_behavior".
+    # Use "exclusion_behavior" as the primary signal (unique to Weglot CSVs), with
+    # "id;type;" as a more specific fallback (tighter than plain "id;" to avoid
+    # false-positives on data rows whose first field happens to be "id").
     first_lower = lines[0].lower()
-    if "exclusion_behavior" in first_lower or first_lower.startswith("id;"):
+    if "exclusion_behavior" in first_lower or first_lower.startswith("id;type;"):
         return max(0, len(lines) - 1)
     return len(lines)
 
