@@ -195,6 +195,7 @@ for i in $(seq 0 $((SITE_COUNT - 1))); do
   SITE_NAME=$(node_val "const c=require('$SITES_CONFIG'); console.log(c.sites[$i].name)")
   SITE_DESC=$(node_val "const c=require('$SITES_CONFIG'); console.log(c.sites[$i].description)")
   SITEMAP_URL=$(node_val "const c=require('$SITES_CONFIG'); console.log(c.sites[$i].sitemap_url)")
+  SITEMAP_URL="${LLMS_SITEMAP_URL:-$SITEMAP_URL}"
   OUTPUT=$(node_val "const c=require('$SITES_CONFIG'); console.log(c.sites[$i].output)")
 
   # Filter if --site was specified

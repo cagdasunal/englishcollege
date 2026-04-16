@@ -39,10 +39,26 @@ jobs:
           WEBFLOW_API_TOKEN: ${{ secrets.WEBFLOW_API_TOKEN }}
         run: python3 tools/generate_master_sitemap.py
 
+      - name: Set up Node.js 20 (for llms.txt regeneration)
+        if: steps.sync.outputs.changes_made == 'true'
+        uses: actions/setup-node@v5
+        with:
+          node-version: '20'
+
+      - name: Regenerate llms.txt from updated sitemap
+        if: steps.sync.outputs.changes_made == 'true'
+        run: |
+          # Use local sitemap.xml (just generated above) so llms.txt is always in sync.
+          python3 -m http.server 8081 --bind 127.0.0.1 &
+          HTTP_PID=$!
+          sleep 2
+          LLMS_SITEMAP_URL=http://localhost:8081/sitemap.xml bash tools/generate_llms.sh
+          kill "$HTTP_PID" 2>/dev/null || true
+
       - name: Stage data changes
         if: steps.sync.outputs.changes_made == 'true'
         run: |
-          git add data/weglot-exclusions.json data/weglot-sitemap-exclusions.json sitemap.xml
+          git add data/weglot-exclusions.json data/weglot-sitemap-exclusions.json sitemap.xml llms.txt
           # Sync CSV: copy to root if exists, delete root if data CSV was cleared
           if [ -f data/weglot.csv ]; then
             cp data/weglot.csv weglot.csv

@@ -44,8 +44,15 @@ jobs:
           WEBFLOW_API_TOKEN: ${{ secrets.WEBFLOW_API_TOKEN }}
         run: python tools/generate_master_sitemap.py
 
-      - name: Generate llms.txt
-        run: bash tools/generate_llms.sh
+      - name: Generate llms.txt from local sitemap
+        run: |
+          # Serve the freshly generated sitemap.xml on localhost so npx llmstxt gen
+          # reads from the exact file just produced, not a stale CDN copy.
+          python3 -m http.server 8081 --bind 127.0.0.1 &
+          HTTP_PID=$!
+          sleep 2
+          LLMS_SITEMAP_URL=http://localhost:8081/sitemap.xml bash tools/generate_llms.sh
+          kill "$HTTP_PID" 2>/dev/null || true
 
       - name: Check sitemap URLs
         run: python tools/check_sitemap_urls.py --posts-only
