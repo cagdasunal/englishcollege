@@ -65,8 +65,10 @@ def count_pending_weglot_entries() -> int:
     lines = [ln for ln in text.splitlines() if ln.strip()]
     if not lines:
         return 0
-    # Heuristic: treat first row as header iff it contains "url" (case-insensitive)
-    if "url" in lines[0].lower():
+    # Treat first row as header if it matches Weglot CSV format.
+    # The actual header is "id;type;value;languages;language_button_displayed;exclusion_behavior".
+    first_lower = lines[0].lower()
+    if "exclusion_behavior" in first_lower or first_lower.startswith("id;"):
         return max(0, len(lines) - 1)
     return len(lines)
 
