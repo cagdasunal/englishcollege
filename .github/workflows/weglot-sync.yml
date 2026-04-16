@@ -85,5 +85,5 @@ jobs:
           git commit -m "chore: sync weglot exclusions ($TIMESTAMP)
 
           New exclusions: ${{ steps.sync.outputs.new_exclusions || 0 }}"
-          git pull --rebase origin main
+          git pull --rebase --autostash origin main
           git push
