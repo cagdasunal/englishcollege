@@ -1,5 +1,5 @@
 {
-  "last_sync": "2026-04-16T09:51:34.208659+00:00",
+  "last_sync": "2026-04-16T11:14:03.495543+00:00",
   "exclusions": {
     "where-do-students-live-vancouver": {
       "language": "en",
@@ -4110,7 +4110,7 @@
         "ko",
         "pt"
       ],
-      "added_at": "2026-04-16T09:51:34.208616+00:00",
+      "added_at": "2026-04-16T11:14:03.495512+00:00",
       "source": "csv"
     },
     "sejours-linguistique-vancouver-famille-colocation": {
@@ -4124,7 +4124,35 @@
         "ko",
         "pt"
       ],
-      "added_at": "2026-04-16T09:51:34.208634+00:00",
+      "added_at": "2026-04-16T11:14:03.495516+00:00",
+      "source": "csv"
+    },
+    "apprendre-anglais-san-diego-experience-gabriel": {
+      "language": "fr",
+      "excluded_from": [
+        "ar",
+        "de",
+        "es",
+        "it",
+        "ja",
+        "ko",
+        "pt"
+      ],
+      "added_at": "2026-04-16T11:14:03.495492+00:00",
+      "source": "csv"
+    },
+    "englisch-lernen-san-diego-gabriel-erfahrung": {
+      "language": "de",
+      "excluded_from": [
+        "ar",
+        "es",
+        "fr",
+        "it",
+        "ja",
+        "ko",
+        "pt"
+      ],
+      "added_at": "2026-04-16T11:14:03.495507+00:00",
       "source": "csv"
     }
   }
