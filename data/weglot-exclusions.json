@@ -1,5 +1,5 @@
 {
-  "last_sync": "2026-04-16T14:11:24.769421+00:00",
+  "last_sync": "2026-04-17T09:44:03.301601+00:00",
   "exclusions": {
     "where-do-students-live-vancouver": {
       "language": "en",
@@ -4154,6 +4154,20 @@
       ],
       "added_at": "2026-04-16T12:11:53.721769+00:00",
       "source": "weglot_existing"
+    },
+    "sejour-linguistique-vancouver-activites-apres-cours": {
+      "language": "fr",
+      "excluded_from": [
+        "ar",
+        "de",
+        "es",
+        "it",
+        "ja",
+        "ko",
+        "pt"
+      ],
+      "added_at": "2026-04-17T09:44:03.301557+00:00",
+      "source": "csv"
     }
   }
 }
